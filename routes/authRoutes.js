@@ -1,9 +1,9 @@
-// routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const auth = require('../middleware/auth'); // You'll need to create this middleware
 
 // @route   POST /api/auth/register
 // @desc    Register user
@@ -88,11 +88,65 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' },
       (err, token) => {
         if (err) throw err;
-        res.json({ token });
+        res.json({ 
+          token,
+          user: {
+            id: user._id,
+            fullName: user.fullName,
+            email: user.email,
+            username: user.username
+          }
+        });
       }
     );
   } catch (err) {
     console.error('Login error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// @route   GET /api/auth/me
+// @desc    Get current user
+// @access  Private
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    res.json(user);
+  } catch (err) {
+    console.error('Get user error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// @route   PUT /api/auth/profile
+// @desc    Update user profile
+// @access  Private
+router.put('/profile', auth, async (req, res) => {
+  try {
+    const { fullName, email } = req.body;
+    
+    // Check if new email is already taken by another user
+    if (email) {
+      const existingUser = await User.findOne({ email, _id: { $ne: req.user.id } });
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email already in use by another account' });
+      }
+    }
+    
+    // Find and update user
+    const updateData = {};
+    if (fullName) updateData.fullName = fullName;
+    if (email) updateData.email = email;
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: updateData },
+      { new: true }
+    ).select('-password');
+    
+    res.json(user);
+  } catch (err) {
+    console.error('Profile update error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
